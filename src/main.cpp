@@ -11,7 +11,7 @@ RTC_DS3231 rtc;
 // Definice pro krokový motor
 #define STEPS_PER_REVOLUTION 2048 // Počet kroků na otáčku pro 28BYJ-48
 #define MOTOR_SPEED 10            // Rychlost motoru (RPM)
-#define DOOR_STEPS 2048           // Počet kroků pro otevření/zavření (1 otáčka)
+#define DOOR_STEPS 6144           // Počet kroků pro otevření/zavření (1 otáčka - 2048)
 
 // Piny pro připojení driveru ULN2003
 #define IN1 2
