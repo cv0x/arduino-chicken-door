@@ -206,7 +206,7 @@ void loop()
       }
       turnOnBacklight();
 
-      // Přidáno: Vynutit kontrolu stavu dveří při stisku tlačítka
+      // Vynutit kontrolu stavu dveří při stisku tlačítka
       lastCheckTime = 0; // Vynutí okamžitou kontrolu
     }
   }
@@ -309,7 +309,7 @@ void loop()
     }
     else
     {
-      // Přidáno: Kontrola, zda stav dveří odpovídá denní době
+      // Kontrola, zda stav dveří odpovídá denní době
       if (isDaytime && !doorOpen)
       {
         Serial.println("Korekce: Je den, ale dveře jsou zavřené. Otevírám...");
