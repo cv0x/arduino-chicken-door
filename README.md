@@ -29,14 +29,21 @@ Tento projekt automaticky otevírá a zavírá dveře kurníku na základě čas
 | IN2 | D3 | |
 | IN3 | D4 | |
 | IN4 | D5 | |
+| VCC | 5V | Napájení driveru ULN2003 |
+| GND | GND | Společná zem |
 | **LCD displej (I2C)** | | |
 | SDA | A4 | |
 | SCL | A5 | |
+| VCC | 5V | Napájení displeje |
+| GND | GND | Společná zem |
 | **RTC modul (I2C)** | | |
 | SDA | A4 | Sdíleno s LCD |
 | SCL | A5 | Sdíleno s LCD |
+| VCC | 5V | Napájení RTC modulu |
+| GND | GND | Společná zem |
 | **Tlačítko podsvícení** | | |
 | Tlačítko | D8 | Připojeno k GND při stisku (INPUT_PULLUP) |
+| GND | GND | Připojeno k druhému pinu tlačítka |
 
 ## Nastavení
 
