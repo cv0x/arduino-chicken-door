@@ -22,12 +22,49 @@ RTC_DS3231 rtc;
 // Adresa v EEPROM pro uložení stavu dveří
 #define DOOR_STATE_ADDR 0
 
+// Konstanty pro podsvícení a tlačítko
+const int BACKLIGHT_PIN = 9;         // PWM pin pro ovládání podsvícení
+const int BACKLIGHT_LEVEL = 20;      // Hodnota 0-255 pro jas (0 = vypnuto, 255 = plný jas)
+const int BUTTON_PIN = 8;            // Pin pro tlačítko podsvícení
+const int BACKLIGHT_TIMEOUT = 30000; // 30 sekund v milisekundách
+
+// Zadejte vaši zeměpisnou polohu (šířka, délka, časové pásmo)
+const float LATITUDE = 50.0755;  // zeměpisná šířka
+const float LONGITUDE = 14.4378; // zeměpisná délka
+const int TIMEZONE = 1;          // časové pásmo (UTC+1 pro ČR, v létě +2)
+
 // Inicializace krokového motoru
 Stepper motor(STEPS_PER_REVOLUTION, IN1, IN3, IN2, IN4);
 
-// Globální proměnné pro sledování stavu dveří
+// Inicializace LCD displeje (0x27 je typická I2C adresa, 16x2 je velikost displeje)
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+Dusk2Dawn location(LATITUDE, LONGITUDE, TIMEZONE);
+
+// Globální proměnné
 bool doorOpen = false;
 bool isDaytime = false;
+bool backlightOn = true;
+unsigned long backlightStartTime = 0;
+unsigned long lastCheckTime = 0;
+const unsigned long checkInterval = 1800000; // 30 minut v milisekundách
+
+// Funkce pro zapnutí podsvícení
+void turnOnBacklight()
+{
+  lcd.setBacklight(true);
+  backlightOn = true;
+  backlightStartTime = millis();
+  Serial.println("Podsvícení zapnuto");
+}
+
+// Funkce pro vypnutí podsvícení
+void turnOffBacklight()
+{
+  lcd.setBacklight(false);
+  backlightOn = false;
+  Serial.println("Podsvícení vypnuto");
+}
 
 // Funkce pro uložení stavu dveří do EEPROM
 void saveDoorState()
@@ -86,23 +123,6 @@ void closeDoor()
   }
 }
 
-// Přidejte tyto konstanty na začátek souboru
-const int BACKLIGHT_PIN = 9;    // PWM pin pro ovládání podsvícení
-const int BACKLIGHT_LEVEL = 20; // Hodnota 0-255 pro jas (0 = vypnuto, 255 = plný jas)
-
-// Zadejte vaši zeměpisnou polohu (šířka, délka, časové pásmo)
-const float LATITUDE = 50.0755;  // zeměpisná šířka
-const float LONGITUDE = 14.4378; // zeměpisná délka
-const int TIMEZONE = 1;          // časové pásmo (UTC+1 pro ČR, v létě +2)
-
-Dusk2Dawn location(LATITUDE, LONGITUDE, TIMEZONE);
-
-// Inicializace LCD displeje (0x27 je typická I2C adresa, 16x2 je velikost displeje)
-LiquidCrystal_I2C lcd(0x27, 16, 2);
-
-unsigned long lastCheckTime = 0;
-const unsigned long checkInterval = 1800000; // 30 minut v milisekundách
-
 // Funkce pro formátování času (HH:MM)
 String formatTime(int hours, int minutes)
 {
@@ -124,9 +144,14 @@ void setup()
   pinMode(BACKLIGHT_PIN, OUTPUT);
   analogWrite(BACKLIGHT_PIN, BACKLIGHT_LEVEL);
 
+  // Nastavení pinu pro tlačítko
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+
   // Inicializace LCD
   lcd.init();
   lcd.setBacklight(true); // Zapnutí základního podsvícení
+  backlightOn = true;
+  backlightStartTime = millis();
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Inicializace...");
@@ -169,12 +194,46 @@ void loop()
 {
   unsigned long currentMillis = millis();
 
+  // Kontrola tlačítka (aktivní v LOW stavu kvůli INPUT_PULLUP)
+  if (digitalRead(BUTTON_PIN) == LOW)
+  {
+    delay(50); // Debounce
+    if (digitalRead(BUTTON_PIN) == LOW)
+    {
+      while (digitalRead(BUTTON_PIN) == LOW)
+      {
+        delay(10);
+      }
+      turnOnBacklight();
+
+      // Přidáno: Vynutit kontrolu stavu dveří při stisku tlačítka
+      lastCheckTime = 0; // Vynutí okamžitou kontrolu
+    }
+  }
+
+  // Kontrola časovače podsvícení
+  if (backlightOn && (millis() - backlightStartTime > BACKLIGHT_TIMEOUT))
+  {
+    turnOffBacklight();
+  }
   // Kontrola, zda uplynulo 30 minut od poslední aktualizace nebo jde o první spuštění
   if (currentMillis - lastCheckTime >= checkInterval || lastCheckTime == 0)
   {
     lastCheckTime = currentMillis;
 
     DateTime now = rtc.now();
+    Serial.print("Aktuální datum a čas: ");
+    Serial.print(now.year(), DEC);
+    Serial.print('/');
+    Serial.print(now.month(), DEC);
+    Serial.print('/');
+    Serial.print(now.day(), DEC);
+    Serial.print(' ');
+    Serial.print(now.hour(), DEC);
+    Serial.print(':');
+    Serial.print(now.minute(), DEC);
+    Serial.print(':');
+    Serial.println(now.second(), DEC);
 
     // Výpočet času východu a západu slunce pro aktuální den
     int sunriseMinutes = location.sunrise(now.year(), now.month(), now.day(), false);
@@ -195,16 +254,46 @@ void loop()
     String sunriseTimeStr = formatTime(sunriseHour, sunriseMinute);
     String sunsetTimeStr = formatTime(sunsetHour, sunsetMinute);
 
-    // Výpočet zbývajícího času do východu/západu slunce
-    int minutesUntilChange;
-    String changeTimeStr;
-
     // Kontrola, zda je den nebo noc
     bool newIsDaytime = (currentMinutes > sunriseMinutes && currentMinutes < sunsetMinutes);
+
+    // Výpočet zbývajícího času do změny
+    int minutesUntilChange;
+    if (newIsDaytime)
+    {
+      // Je den, počítáme čas do západu
+      minutesUntilChange = sunsetMinutes - currentMinutes;
+    }
+    else
+    {
+      // Je noc, počítáme čas do východu
+      if (currentMinutes < sunriseMinutes)
+      {
+        // Východ bude dnes
+        minutesUntilChange = sunriseMinutes - currentMinutes;
+      }
+      else
+      {
+        // Východ bude zítra (24 hodin - aktuální čas + zítřejší východ)
+        minutesUntilChange = (24 * 60 - currentMinutes) + sunriseMinutes;
+      }
+    }
+
+    Serial.print("Aktuální čas (minuty od půlnoci): ");
+    Serial.println(currentMinutes);
+    Serial.print("Východ slunce (minuty od půlnoci): ");
+    Serial.println(sunriseMinutes);
+    Serial.print("Západ slunce (minuty od půlnoci): ");
+    Serial.println(sunsetMinutes);
+    Serial.print("Je den? ");
+    Serial.println(newIsDaytime ? "ANO" : "NE");
+    Serial.print("Předchozí stav - Je den? ");
+    Serial.println(isDaytime ? "ANO" : "NE");
 
     // Kontrola, zda se změnil stav dne/noci
     if (newIsDaytime != isDaytime)
     {
+      Serial.println("ZMĚNA STAVU DEN/NOC DETEKOVÁNA!");
       isDaytime = newIsDaytime;
 
       if (isDaytime)
@@ -215,6 +304,20 @@ void loop()
       else
       {
         // Přechod ze dne na noc - zavřít dveře
+        closeDoor();
+      }
+    }
+    else
+    {
+      // Přidáno: Kontrola, zda stav dveří odpovídá denní době
+      if (isDaytime && !doorOpen)
+      {
+        Serial.println("Korekce: Je den, ale dveře jsou zavřené. Otevírám...");
+        openDoor();
+      }
+      else if (!isDaytime && doorOpen)
+      {
+        Serial.println("Korekce: Je noc, ale dveře jsou otevřené. Zavírám...");
         closeDoor();
       }
     }
